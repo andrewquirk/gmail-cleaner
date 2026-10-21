@@ -1,0 +1,18 @@
+# Copy to config.yaml (gitignored) and pass with --config config.yaml
+
+# Claude model used by the agent
+model: claude-opus-5-5
+
+# Hard cap on messages the agent may modify in one run
+max_actions: 200
+
+# Never touch mail from these senders (substring match on the From header, case-insensitive)
+protected_senders:
+  - "@mybank.com"
+  - "boss@example.com"
+
+# Plain-English guidance appended to the agent's instructions
+instructions: |
+  Archive newsletters and promotions older than 30 days.
+  Trash obvious spam and expired one-time-passcode emails older than 7 days.
+  Leave anything from a real person, receipts, and travel confirmations alone.
