@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gmail Cleaner</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #fff; --text: #1d2330; --muted: #5d6677; --line: #dfe3ea;
+    --accent: #1a56db; --accent-text: #fff; --danger: #b42318; --ok: #0a7a43;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151c; --card: #1b2029; --text: #e8ebf1; --muted: #9aa3b5; --line: #2c3340;
+      --accent: #6b9bff; --accent-text: #0c1020; --danger: #ff8a7d; --ok: #5fd39a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 24px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+          padding: 20px; margin-bottom: 16px; }
+  .card h2 { font-size: 16px; margin: 0 0 4px; }
+  .card p { margin: 0 0 12px; color: var(--muted); }
+  .step { display: inline-block; width: 22px; height: 22px; line-height: 22px; text-align: center;
+          border-radius: 50%; background: var(--accent); color: var(--accent-text);
+          font-size: 13px; margin-right: 8px; }
+  .done .step { background: var(--ok); }
+  button { font: inherit; padding: 9px 16px; border-radius: 8px; border: 1px solid var(--line);
+           background: var(--card); color: var(--text); cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: transparent; }
+  button.danger { background: var(--danger); color: #fff; border-color: transparent; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  button:focus-visible, textarea:focus-visible, input:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px; }
+  textarea { width: 100%; min-height: 110px; padding: 10px; border-radius: 8px; font: inherit;
+             border: 1px solid var(--line); background: var(--bg); color: var(--text); resize: vertical; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
+  .msg { margin-top: 12px; min-height: 1.4em; }
+  .msg.err { color: var(--danger); } .msg.ok { color: var(--ok); }
+  .who { font-weight: 600; }
+  ul.res { list-style: none; padding: 0; margin: 12px 0 0; }
+  ul.res li { padding: 10px 0; border-top: 1px solid var(--line); }
+  ul.res .n { font-weight: 600; }
+  ul.res .eg { color: var(--muted); font-size: 13px; margin-left: 12px; }
+  .hidden { display: none; }
+  code { background: var(--bg); padding: 1px 5px; border-radius: 4px; }
+  details { color: var(--muted); margin-top: 8px; }
+  details ol { margin: 8px 0 0; padding-left: 20px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Gmail Cleaner</h1>
+  <p class="sub">Move all mail from senders you choose to Trash. Everything runs on this computer.</p>
+
+  <section class="card" id="creds-card">
+    <h2><span class="step">1</span>Add your Google app file</h2>
+    <p>Choose the <code>credentials.json</code> you downloaded from Google Cloud Console.</p>
+    <input type="file" id="creds-file" accept=".json,application/json">
+    <details>
+      <summary>How do I get this file?</summary>
+      <ol>
+        <li>Open <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">Google Cloud Console</a> and create a project.</li>
+        <li>Enable the <b>Gmail API</b>, then set up the OAuth consent screen (External; add your own address as a test user).</li>
+        <li>Credentials &rarr; Create credentials &rarr; <b>OAuth client ID</b> &rarr; <b>Desktop app</b>, then download the JSON.</li>
+      </ol>
+    </details>
+    <div class="msg" id="creds-msg" role="status"></div>
+  </section>
+
+  <section class="card" id="auth-card">
+    <h2><span class="step">2</span>Sign in with Google</h2>
+    <p id="auth-text">A Google window will ask you to allow access to your mailbox.</p>
+    <div class="row">
+      <button class="primary" id="signin">Sign in with Google</button>
+      <button id="signout" class="hidden">Sign out</button>
+    </div>
+    <div class="msg" id="auth-msg" role="status"></div>
+  </section>
+
+  <section class="card" id="run-card">
+    <h2><span class="step">3</span>Choose senders</h2>
+    <p>One per line. Use an address (<code>news@shop.com</code>) or a whole domain (<code>@shop.com</code>). Starred mail is never touched.</p>
+    <textarea id="senders" placeholder="news@shop.com&#10;@spammy-domain.com" aria-label="Senders"></textarea>
+    <div class="row">
+      <button class="primary" id="preview">Preview</button>
+      <button class="danger hidden" id="apply">Move to Trash</button>
+    </div>
+    <div class="msg" id="run-msg" role="status"></div>
+    <ul class="res" id="results"></ul>
+  </section>
+</main>
+
+<script>
+const CSRF = "__CSRF__";
+const $ = id => document.getElementById(id);
+let previewedFor = null;
+
+async function api(path, body = {}) {
+  const r = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-CSRF-Token": CSRF },
+    body: JSON.stringify(body),
+  });
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error || r.statusText);
+  return data;
+}
+
+function say(id, text, kind = "") { const el = $(id); el.textContent = text; el.className = "msg " + kind; }
+
+function render(s) {
+  $("creds-card").classList.toggle("done", s.has_credentials);
+  $("auth-card").classList.toggle("done", s.signed_in);
+  $("signin").disabled = !s.has_credentials;
+  $("signin").classList.toggle("hidden", s.signed_in);
+  $("signout").classList.toggle("hidden", !s.signed_in);
+  $("auth-text").textContent = s.signed_in ? "Signed in as " + s.email
+    : "A Google window will ask you to allow access to your mailbox.";
+  if (s.signed_in) $("auth-text").className = "who";
+  else $("auth-text").className = "";
+  $("preview").disabled = !s.signed_in;
+  if (!s.signed_in) resetPreview();
+  if (s.has_credentials && !$("creds-msg").textContent) say("creds-msg", "Google app file saved.", "ok");
+}
+
+function resetPreview() { previewedFor = null; $("apply").classList.add("hidden"); $("results").replaceChildren(); }
+
+async function guarded(msgId, fn) {
+  try { await fn(); } catch (e) { say(msgId, e.message, "err"); }
+}
+
+$("creds-file").addEventListener("change", e => guarded("creds-msg", async () => {
+  const f = e.target.files[0]; if (!f) return;
+  render(await api("/api/credentials", { content: await f.text() }));
+  say("creds-msg", "Google app file saved.", "ok");
+}));
+
+$("signin").addEventListener("click", () => guarded("auth-msg", async () => {
+  say("auth-msg", "Waiting for you to finish in the Google window…");
+  $("signin").disabled = true;
+  try { render(await api("/api/signin")); say("auth-msg", ""); }
+  finally { $("signin").disabled = false; }
+}));
+
+$("signout").addEventListener("click", () => guarded("auth-msg", async () => {
+  render(await api("/api/signout")); say("auth-msg", "Signed out.");
+}));
+
+function show(results, applied) {
+  const ul = $("results"); ul.replaceChildren();
+  let total = 0;
+  for (const r of results) {
+    total += r.count;
+    const li = document.createElement("li");
+    const n = document.createElement("span"); n.className = "n";
+    n.textContent = r.sender + ": " + r.count + " message" + (r.count === 1 ? "" : "s");
+    li.append(n);
+    for (const s of r.samples) {
+      const d = document.createElement("div"); d.className = "eg"; d.textContent = "e.g. " + s; li.append(d);
+    }
+    ul.append(li);
+  }
+  return total;
+}
+
+$("preview").addEventListener("click", () => guarded("run-msg", async () => {
+  const senders = $("senders").value;
+  say("run-msg", "Searching…"); resetPreview();
+  const { results } = await api("/api/preview", { senders });
+  const total = show(results, false);
+  if (total === 0) return say("run-msg", "Nothing found for those senders.");
+  previewedFor = senders;
+  $("apply").textContent = "Move " + total + " message" + (total === 1 ? "" : "s") + " to Trash";
+  $("apply").classList.remove("hidden");
+  say("run-msg", "Preview only. Nothing has changed yet.");
+}));
+
+$("senders").addEventListener("input", () => { if (previewedFor !== null) { resetPreview(); say("run-msg", ""); } });
+
+$("apply").addEventListener("click", () => guarded("run-msg", async () => {
+  if (previewedFor !== $("senders").value) return say("run-msg", "Preview again first.", "err");
+  $("apply").disabled = true;
+  try {
+    say("run-msg", "Moving to Trash…");
+    const { results } = await api("/api/apply", { senders: previewedFor });
+    resetPreview();
+    const total = show(results, true);
+    say("run-msg", "Moved " + total + " message(s) to Trash. Recoverable in Gmail for 30 days.", "ok");
+  } finally { $("apply").disabled = false; }
+}));
+
+guarded("auth-msg", async () => render(await api("/api/status")));
+</script>
+</body>
+</html>

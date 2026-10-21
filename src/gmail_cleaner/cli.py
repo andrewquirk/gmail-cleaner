@@ -36,7 +36,17 @@ def main(argv: list[str] | None = None) -> None:
     d.add_argument("--token", type=Path, default=Path("token.json"))
     d.add_argument("--log", type=Path, default=Path("actions.jsonl"))
 
+    u = sub.add_parser("ui", help="Open a local web page to sign in and trash mail by sender")
+    u.add_argument("--credentials", type=Path, default=Path("credentials.json"))
+    u.add_argument("--token", type=Path, default=Path("token.json"))
+    u.add_argument("--log", type=Path, default=Path("actions.jsonl"))
+    u.add_argument("--no-browser", action="store_true", help="Don't open a browser tab")
+
     args = p.parse_args(argv)
+    if args.cmd == "ui":
+        from .ui import serve
+
+        return serve(args.credentials, args.token, args.log, open_browser=not args.no_browser)
     if args.cmd == "delete":
         return _delete(args)
     cfg = yaml.safe_load(args.config.read_text()) if args.config else {}

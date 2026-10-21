@@ -24,6 +24,14 @@ A Claude-powered agent that tidies your Gmail inbox: archives newsletters and pr
 
 ## Usage
 
+### Web UI (easiest)
+
+```bash
+uv run gmail-cleaner ui
+```
+
+Opens a page on your own computer (`127.0.0.1` only). Load your `credentials.json`, click **Sign in with Google**, enter the senders, **Preview**, then **Move to Trash**. Nothing is changed until you confirm the preview. Agent mode (Claude) is CLI-only, so the UI needs no Anthropic key.
+
 ### Delete everything from specific senders (no LLM)
 
 ```bash
