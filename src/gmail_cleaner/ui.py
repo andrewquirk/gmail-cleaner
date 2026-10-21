@@ -1,4 +1,7 @@
-"""Local web UI: sign in with Google, then trash mail by sender. Runs only on 127.0.0.1."""
+"""Local web UI: connect Gmail with an app password, then trash mail by sender.
+
+Runs only on 127.0.0.1. The app password is kept in memory and never written to disk.
+"""
 
 from __future__ import annotations
 
@@ -10,73 +13,60 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from .auth import build_service, load_cached, sign_in
 from .cleanup import trash_senders
-from .gmail import Gmail
+from .imap import ImapError, connect
+from .usage import summarize
 
 _PAGE = Path(__file__).with_name("ui.html")
 _MAX_BODY = 1_000_000
+_MAX_SAMPLE = 20_000
 
 
 class App:
-    """State shared by all requests: file locations, CSRF token, and the Gmail session."""
+    """State shared by all requests: CSRF token and the in-memory Gmail login."""
 
-    def __init__(self, credentials: Path, token: Path, log: Path):
-        self.credentials = credentials
-        self.token = token
+    def __init__(self, log: Path, connector=connect):
         self.log = log
+        self._connector = connector
         self.csrf = secrets.token_urlsafe(32)
         self.port = 0
-        self._lock = threading.Lock()  # one Gmail action or sign-in at a time
-        self._gmail: Gmail | None = None
+        self._lock = threading.Lock()  # one Gmail action at a time
         self._email = ""
-
-    def _connect(self) -> Gmail | None:
-        if self._gmail is None:
-            creds = load_cached(self.token)
-            if creds is None:
-                return None
-            svc = build_service(creds)
-            self._email = svc.users().getProfile(userId="me").execute()["emailAddress"]
-            self._gmail = Gmail(svc)
-        return self._gmail
+        self._password = ""
 
     def status(self) -> dict:
-        with self._lock:
-            signed_in = self._connect() is not None
-            return {
-                "signed_in": signed_in,
-                "email": self._email if signed_in else "",
-                "has_credentials": self.credentials.exists(),
-            }
+        return {"connected": bool(self._password), "email": self._email}
 
-    def save_credentials(self, raw: str) -> None:
-        data = json.loads(raw)
-        if not isinstance(data, dict) or "installed" not in data:
-            raise ValueError(
-                "That isn't a Desktop-app OAuth client file. In Google Cloud Console, "
-                "create an OAuth client ID of type 'Desktop app' and download its JSON."
-            )
-        self.credentials.write_text(raw)
-        self.credentials.chmod(0o600)
-
-    def sign_in(self) -> None:
+    def connect(self, email: str, password: str) -> None:
+        email = email.strip()
+        password = "".join(password.split())  # Google shows app passwords in groups of four
+        if "@" not in email or not password:
+            raise ValueError("Enter your Gmail address and app password.")
         with self._lock:
-            sign_in(self.credentials, self.token)
-            self._gmail = None
+            with self._connector(email, password):
+                pass  # logging in is the check
+            self._email, self._password = email, password
 
-    def sign_out(self) -> None:
+    def disconnect(self) -> None:
         with self._lock:
-            self.token.unlink(missing_ok=True)
-            self._gmail = None
-            self._email = ""
+            self._email = self._password = ""
+
+    def usage(self, sample: int) -> dict:
+        if not 1 <= sample <= _MAX_SAMPLE:
+            raise ValueError(f"Sample size must be between 1 and {_MAX_SAMPLE:,}.")
+        with self._lock:
+            if not self._password:
+                raise PermissionError("Not connected.")
+            with self._connector(self._email, self._password) as mailbox:
+                total, rows = mailbox.sample(sample)
+        return summarize(rows, total)
 
     def trash(self, senders: list[str], apply: bool) -> list[dict]:
         with self._lock:
-            gmail = self._connect()
-            if gmail is None:
-                raise PermissionError("Not signed in.")
-            results = trash_senders(gmail, senders, apply=apply, log_path=self.log)
+            if not self._password:
+                raise PermissionError("Not connected.")
+            with self._connector(self._email, self._password) as mailbox:
+                results = trash_senders(mailbox, senders, apply=apply, log_path=self.log)
         return [{"sender": r.sender, "count": r.count, "samples": r.samples} for r in results]
 
 
@@ -131,25 +121,22 @@ def make_handler(app: App):
                 self._json(200, self._route(self.path, body))
             except PermissionError as e:
                 self._json(401, {"error": str(e)})
-            except FileNotFoundError as e:
+            except (ImapError, ValueError, KeyError, TypeError) as e:
                 self._json(400, {"error": str(e)})
-            except (ValueError, KeyError, TypeError) as e:
-                self._json(400, {"error": str(e)})
-            except Exception as e:  # noqa: BLE001 - surface Google/API failures to the page
+            except Exception as e:  # noqa: BLE001 - surface Gmail failures to the page
                 self._json(500, {"error": f"{type(e).__name__}: {e}"})
 
         def _route(self, path: str, body: dict) -> dict:
             if path == "/api/status":
                 return app.status()
-            if path == "/api/credentials":
-                app.save_credentials(body["content"])
+            if path == "/api/connect":
+                app.connect(body["email"], body["password"])
                 return app.status()
-            if path == "/api/signin":
-                app.sign_in()
+            if path == "/api/disconnect":
+                app.disconnect()
                 return app.status()
-            if path == "/api/signout":
-                app.sign_out()
-                return app.status()
+            if path == "/api/usage":
+                return app.usage(int(body.get("sample", 1000)))
             if path in ("/api/preview", "/api/apply"):
                 senders = parse_senders(body.get("senders", ""))
                 if not senders:
@@ -160,8 +147,8 @@ def make_handler(app: App):
     return Handler
 
 
-def serve(credentials: Path, token: Path, log: Path, open_browser: bool = True) -> None:
-    app = App(credentials, token, log)
+def serve(log: Path, open_browser: bool = True) -> None:
+    app = App(log)
     server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(app))
     app.port = server.server_address[1]
     url = f"http://127.0.0.1:{app.port}/"

@@ -30,7 +30,13 @@ A Claude-powered agent that tidies your Gmail inbox: archives newsletters and pr
 uv run gmail-cleaner ui
 ```
 
-Opens a page on your own computer (`127.0.0.1` only). Load your `credentials.json`, click **Sign in with Google**, enter the senders, **Preview**, then **Move to Trash**. Nothing is changed until you confirm the preview. Agent mode (Claude) is CLI-only, so the UI needs no Anthropic key.
+Opens a page on your own computer (`127.0.0.1` only). Enter your Gmail address and a Google **app password**, then the senders, **Preview**, and **Move to Trash**. Nothing changes until you confirm the preview.
+
+- **Find what's using space:** an optional step that scans a random sample (1,000 to 10,000 emails) and ranks sender domains by size, with an estimate for your whole mailbox. It reads only sizes and sender addresses, never message contents. One click adds a domain to the senders list.
+- No Google Cloud project or `credentials.json` needed. Create the app password at <https://myaccount.google.com/apppasswords> (needs 2-Step Verification; some work/school accounts block app passwords).
+- The app password is kept in memory only and forgotten when you disconnect or close the program. Revoke it any time on the same page.
+- The UI talks to Gmail over IMAP and only searches, reads subject lines, and copies mail to Trash. It never expunges or permanently deletes. Trashed mail is recoverable in Gmail for 30 days.
+- Agent mode (Claude) is CLI-only and still uses the OAuth setup below.
 
 ### Delete everything from specific senders (no LLM)
 

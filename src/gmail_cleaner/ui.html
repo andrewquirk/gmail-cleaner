@@ -46,7 +46,25 @@
   ul.res li { padding: 10px 0; border-top: 1px solid var(--line); }
   ul.res .n { font-weight: 600; }
   ul.res .eg { color: var(--muted); font-size: 13px; margin-left: 12px; }
+  label.inline { display: inline; margin: 0; }
+  select { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line);
+           background: var(--bg); color: var(--text); }
+  h2 small { font-weight: 400; color: var(--muted); font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 14px; }
+  th { text-align: left; color: var(--muted); font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  td { padding: 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .sr { position: absolute; left: -9999px; }
+  .dom { font-weight: 600; word-break: break-all; }
+  .bar { height: 6px; border-radius: 3px; background: var(--accent); margin-top: 6px; min-width: 2px; }
+  .chips { margin-top: 6px; display: flex; gap: 4px; flex-wrap: wrap; }
+  button.chip { padding: 2px 8px; font-size: 12px; border-radius: 999px; color: var(--muted); word-break: break-all; }
+  button.add { padding: 4px 10px; font-size: 13px; white-space: nowrap; }
   .hidden { display: none; }
+  label { display: block; font-weight: 600; margin: 12px 0 4px; }
+  input[type=email], input[type=password] { width: 100%; padding: 9px 10px; border-radius: 8px; font: inherit;
+         border: 1px solid var(--line); background: var(--bg); color: var(--text); }
+  .small { font-size: 13px; margin-top: 8px; }
   code { background: var(--bg); padding: 1px 5px; border-radius: 4px; }
   details { color: var(--muted); margin-top: 8px; }
   details ol { margin: 8px 0 0; padding-left: 20px; }
@@ -57,29 +75,48 @@
   <h1>Gmail Cleaner</h1>
   <p class="sub">Move all mail from senders you choose to Trash. Everything runs on this computer.</p>
 
-  <section class="card" id="creds-card">
-    <h2><span class="step">1</span>Add your Google app file</h2>
-    <p>Choose the <code>credentials.json</code> you downloaded from Google Cloud Console.</p>
-    <input type="file" id="creds-file" accept=".json,application/json">
-    <details>
-      <summary>How do I get this file?</summary>
+  <section class="card" id="auth-card">
+    <h2><span class="step">1</span>Connect your Gmail</h2>
+    <p id="auth-text">Enter your Gmail address and a Google <b>app password</b> (not your normal password).</p>
+    <form id="login" autocomplete="off">
+      <label for="email">Gmail address</label>
+      <input type="email" id="email" required autocomplete="off" placeholder="you@gmail.com">
+      <label for="password">App password</label>
+      <input type="password" id="password" required autocomplete="off" spellcheck="false"
+             placeholder="16 characters, spaces are fine">
+      <div class="row"><button class="primary" id="connect" type="submit">Connect</button></div>
+    </form>
+    <div class="row"><button id="disconnect" class="hidden">Disconnect</button></div>
+    <details id="howto">
+      <summary>How do I get an app password?</summary>
       <ol>
-        <li>Open <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">Google Cloud Console</a> and create a project.</li>
-        <li>Enable the <b>Gmail API</b>, then set up the OAuth consent screen (External; add your own address as a test user).</li>
-        <li>Credentials &rarr; Create credentials &rarr; <b>OAuth client ID</b> &rarr; <b>Desktop app</b>, then download the JSON.</li>
+        <li>Turn on <a href="https://myaccount.google.com/signinoptions/twosv" target="_blank" rel="noopener">2-Step Verification</a> for your Google account, if it isn't already.</li>
+        <li>Open <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener">App passwords</a>, name it &ldquo;Gmail Cleaner&rdquo;, and click Create.</li>
+        <li>Copy the 16-character code Google shows and paste it above.</li>
       </ol>
+      <p class="small">Work and school accounts often block app passwords. Your password stays in this program&rsquo;s memory only and is forgotten when you close it. You can revoke it any time on the App passwords page.</p>
     </details>
-    <div class="msg" id="creds-msg" role="status"></div>
+    <div class="msg" id="auth-msg" role="status"></div>
   </section>
 
-  <section class="card" id="auth-card">
-    <h2><span class="step">2</span>Sign in with Google</h2>
-    <p id="auth-text">A Google window will ask you to allow access to your mailbox.</p>
+  <section class="card" id="space-card">
+    <h2><span class="step">2</span>Find what&rsquo;s using space <small>(optional)</small></h2>
+    <p>Look at a random sample of your mail to see which senders take up the most room. Only sizes and sender addresses are read, never message contents.</p>
     <div class="row">
-      <button class="primary" id="signin">Sign in with Google</button>
-      <button id="signout" class="hidden">Sign out</button>
+      <label for="sample" class="inline">Sample</label>
+      <select id="sample">
+        <option value="1000">1,000 emails (fast)</option>
+        <option value="5000">5,000 emails</option>
+        <option value="10000">10,000 emails (slower, more accurate)</option>
+      </select>
+      <button class="primary" id="scan" disabled>Scan</button>
     </div>
-    <div class="msg" id="auth-msg" role="status"></div>
+    <div class="msg" id="space-msg" role="status"></div>
+    <div id="space-summary" class="small"></div>
+    <table id="space-table" class="hidden">
+      <thead><tr><th>Sender domain</th><th class="num">Emails</th><th class="num">Size in sample</th><th class="num">Est. total</th><th><span class="sr">Add</span></th></tr></thead>
+      <tbody id="space-body"></tbody>
+    </table>
   </section>
 
   <section class="card" id="run-card">
@@ -99,6 +136,7 @@
 const CSRF = "__CSRF__";
 const $ = id => document.getElementById(id);
 let previewedFor = null;
+let connected = false;
 
 async function api(path, body = {}) {
   const r = await fetch(path, {
@@ -114,18 +152,18 @@ async function api(path, body = {}) {
 function say(id, text, kind = "") { const el = $(id); el.textContent = text; el.className = "msg " + kind; }
 
 function render(s) {
-  $("creds-card").classList.toggle("done", s.has_credentials);
-  $("auth-card").classList.toggle("done", s.signed_in);
-  $("signin").disabled = !s.has_credentials;
-  $("signin").classList.toggle("hidden", s.signed_in);
-  $("signout").classList.toggle("hidden", !s.signed_in);
-  $("auth-text").textContent = s.signed_in ? "Signed in as " + s.email
-    : "A Google window will ask you to allow access to your mailbox.";
-  if (s.signed_in) $("auth-text").className = "who";
-  else $("auth-text").className = "";
-  $("preview").disabled = !s.signed_in;
-  if (!s.signed_in) resetPreview();
-  if (s.has_credentials && !$("creds-msg").textContent) say("creds-msg", "Google app file saved.", "ok");
+  $("auth-card").classList.toggle("done", s.connected);
+  $("login").classList.toggle("hidden", s.connected);
+  $("disconnect").classList.toggle("hidden", !s.connected);
+  $("howto").classList.toggle("hidden", s.connected);
+  $("auth-text").textContent = s.connected ? "Connected as " + s.email
+    : "Enter your Gmail address and a Google app password (not your normal password).";
+  $("auth-text").className = s.connected ? "who" : "";
+  connected = s.connected;
+  $("preview").disabled = !s.connected;
+  $("scan").disabled = !s.connected;
+  if (!s.connected) { $("space-table").classList.add("hidden"); $("space-summary").textContent = ""; }
+  if (!s.connected) resetPreview();
 }
 
 function resetPreview() { previewedFor = null; $("apply").classList.add("hidden"); $("results").replaceChildren(); }
@@ -134,21 +172,17 @@ async function guarded(msgId, fn) {
   try { await fn(); } catch (e) { say(msgId, e.message, "err"); }
 }
 
-$("creds-file").addEventListener("change", e => guarded("creds-msg", async () => {
-  const f = e.target.files[0]; if (!f) return;
-  render(await api("/api/credentials", { content: await f.text() }));
-  say("creds-msg", "Google app file saved.", "ok");
-}));
+$("login").addEventListener("submit", e => { e.preventDefault(); guarded("auth-msg", async () => {
+  say("auth-msg", "Connecting…");
+  $("connect").disabled = true;
+  try {
+    render(await api("/api/connect", { email: $("email").value, password: $("password").value }));
+    $("password").value = ""; say("auth-msg", "");
+  } finally { $("connect").disabled = false; }
+}); });
 
-$("signin").addEventListener("click", () => guarded("auth-msg", async () => {
-  say("auth-msg", "Waiting for you to finish in the Google window…");
-  $("signin").disabled = true;
-  try { render(await api("/api/signin")); say("auth-msg", ""); }
-  finally { $("signin").disabled = false; }
-}));
-
-$("signout").addEventListener("click", () => guarded("auth-msg", async () => {
-  render(await api("/api/signout")); say("auth-msg", "Signed out.");
+$("disconnect").addEventListener("click", () => guarded("auth-msg", async () => {
+  render(await api("/api/disconnect")); say("auth-msg", "Disconnected. Your app password was forgotten.");
 }));
 
 function show(results, applied) {
@@ -192,6 +226,63 @@ $("apply").addEventListener("click", () => guarded("run-msg", async () => {
     const total = show(results, true);
     say("run-msg", "Moved " + total + " message(s) to Trash. Recoverable in Gmail for 30 days.", "ok");
   } finally { $("apply").disabled = false; }
+}));
+
+function fmt(b) {
+  const u = ["B", "KB", "MB", "GB", "TB"]; let i = 0;
+  while (b >= 1024 && i < u.length - 1) { b /= 1024; i++; }
+  return (i === 0 ? b : b.toFixed(b >= 100 ? 0 : 1)) + " " + u[i];
+}
+
+function addSender(value) {
+  const box = $("senders");
+  const have = box.value.split(/[\s,;]+/);
+  if (!have.includes(value)) box.value = (box.value.trim() ? box.value.trim() + "\n" : "") + value + "\n";
+  box.dispatchEvent(new Event("input"));
+  say("run-msg", "Added " + value + ". Click Preview to see what would be moved.");
+  $("run-card").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e;
+}
+
+function showUsage(u) {
+  const body = $("space-body"); body.replaceChildren();
+  for (const d of u.domains) {
+    const tr = el("tr");
+    const first = el("td");
+    first.append(el("div", "dom", d.domain));
+    const bar = el("div", "bar"); bar.style.width = Math.max(d.share * 100, 0.5) + "%"; first.append(bar);
+    if (d.top_senders.length > 1 || d.domain === "gmail.com") {
+      const chips = el("div", "chips");
+      for (const s of d.top_senders) {
+        const c = el("button", "chip", s.sender + " (" + s.count + ")"); c.type = "button";
+        c.title = "Add just this address"; c.addEventListener("click", () => addSender(s.sender)); chips.append(c);
+      }
+      first.append(chips);
+    }
+    tr.append(first, el("td", "num", d.count.toLocaleString()), el("td", "num", fmt(d.bytes) + " (" + Math.round(d.share * 100) + "%)"),
+              el("td", "num", u.exact ? "" : "~" + fmt(d.est_bytes)));
+    const act = el("td");
+    if (d.domain !== "(unknown)") {
+      const b = el("button", "add", "Add"); b.type = "button"; b.title = "Add @" + d.domain + " to the senders list";
+      b.addEventListener("click", () => addSender("@" + d.domain)); act.append(b);
+    }
+    tr.append(act); body.append(tr);
+  }
+  $("space-table").classList.toggle("hidden", u.domains.length === 0);
+  $("space-summary").textContent = u.exact
+    ? "Scanned all " + u.total_messages.toLocaleString() + " emails: " + fmt(u.sample_bytes) + " in total."
+    : "Sampled " + u.sampled.toLocaleString() + " of " + u.total_messages.toLocaleString() + " emails (" + fmt(u.sample_bytes) +
+      "). Estimated total for All Mail: ~" + fmt(u.est_total_bytes) + ". Estimates get more accurate with bigger samples.";
+}
+
+$("scan").addEventListener("click", () => guarded("space-msg", async () => {
+  say("space-msg", "Scanning… this can take up to a minute for large samples.");
+  $("scan").disabled = true;
+  try { showUsage(await api("/api/usage", { sample: Number($("sample").value) })); say("space-msg", ""); }
+  finally { $("scan").disabled = !connected; }
 }));
 
 guarded("auth-msg", async () => render(await api("/api/status")));
